@@ -1,0 +1,28 @@
+node_modules/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+
+# Generated files
+/src/generated/prisma
+/prisma/generated/prisma-seed
+
+# Local/AI coding assistant files
+.agents/
+.claude/
+.windsurf/
+
+# Local scripts / test helpers
+check-*.js
+check-*.ts
+verify-*.js
+set-*.js
+
+# Project-specific files
+promo_foundation.sql
+railway-config.json

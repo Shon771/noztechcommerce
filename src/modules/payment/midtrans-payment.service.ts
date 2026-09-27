@@ -87,9 +87,6 @@ enabled_payments:
                 item_details: data.itemDetails,
               }
             : {}),
-          payment_methods: this.mapPaymentMethod(data.paymentMethod),
-        },
-        {
           auth: {
             username: serverKey,
             password: '',

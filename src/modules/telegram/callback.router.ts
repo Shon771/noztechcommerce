@@ -240,12 +240,166 @@ if (callbackData.startsWith('order:cancel:')) {
     }
 
     /*
+ * Product detail quantity controls
+ */
+if (
+  callbackData.startsWith(
+    'catalog:qty:',
+  )
+) {
+  const parts =
+    callbackData.split(':');
+
+const action = parts[2];
+
+const productId = parts[3];
+
+const currentQuantity = Number(
+  parts[4],
+);
+
+const page = Number(
+  parts[5] ?? '1',
+);
+
+if (
+  !action ||
+  !productId ||
+  !Number.isInteger(currentQuantity) ||
+  currentQuantity < 1
+) {
+  await this.telegramService.sendMessage(
+    chatId,
+    '⚠️ Quantity produk tidak valid.',
+  );
+
+  return;
+}
+
+await this.handleProductQuantity(
+  chatId,
+  productId,
+  currentQuantity,
+  action,
+  page,
+  callbackQuery.message?.message_id,
+);
+
+return;
+}
+
+    /*
      * Quantity display button.
      * Intentionally does nothing.
      */
     if (callbackData === 'cart:noop') {
       return;
     }
+
+/*
+ * Back to catalog from product detail
+ */
+if (
+  callbackData.startsWith(
+    'catalog:back:',
+  )
+) {
+  const page = Number(
+    callbackData.substring(
+      'catalog:back:'.length,
+    ),
+  );
+
+  if (
+    !Number.isInteger(page) ||
+    page < 1
+  ) {
+    await this.telegramService.sendMessage(
+      chatId,
+      '⚠️ Halaman katalog tidak valid.',
+    );
+
+    return;
+  }
+
+  await this.handleCatalog(
+    chatId,
+    page,
+  );
+
+  return;
+}
+
+/*
+ * Catalog pagination
+ */
+if (
+  callbackData.startsWith(
+    'catalog:page:',
+  )
+) {
+  const page = Number(
+    callbackData.substring(
+      'catalog:page:'.length,
+    ),
+  );
+
+  if (
+    !Number.isInteger(page) ||
+    page < 1
+  ) {
+    await this.telegramService.sendMessage(
+      chatId,
+      '⚠️ Halaman katalog tidak valid.',
+    );
+
+    return;
+  }
+
+  await this.handleCatalog(
+    chatId,
+    page,
+    callbackQuery.message?.message_id,
+  );
+
+  return;
+}
+
+/*
+ * Catalog product detail
+ */
+if (
+  callbackData.startsWith(
+    'catalog:product:',
+  )
+) {
+  const parts =
+    callbackData.split(':');
+
+  const productId = parts[2];
+  const page = Number(
+    parts[3] ?? '1',
+  );
+
+  if (!productId) {
+    await this.telegramService.sendMessage(
+      chatId,
+      '⚠️ Produk tidak valid.',
+    );
+
+    return;
+  }
+
+  await this.handleProductDetail(
+    chatId,
+    productId,
+    Number.isInteger(page) && page > 0
+      ? page
+      : 1,
+  );
+
+  return;
+}
 
     if (
   callbackData === 'admin:product:add'
@@ -1211,8 +1365,11 @@ if (
 
     switch (callbackData) {
       case 'catalog:open':
-        await this.handleCatalog(chatId);
-        break;
+  await this.handleCatalog(
+    chatId,
+    1,
+  );
+  break;
 
       case 'cart:open':
         await this.handleCart(
@@ -1560,37 +1717,179 @@ case 'admin:supplier-orders': {
 
   private async handleCatalog(
   chatId: number,
+  page = 1,
+  messageId?: number,
 ): Promise<void> {
-  const catalog =
-    await this.productHandler.handle(chatId);
-
-  await this.telegramService.sendMessage(
-    chatId,
-    '🛒 KATALOG PRODUK\n\n' +
-      'Pilih produk yang ingin kamu beli:',
-  );
-
-  for (const product of catalog.products) {
-    const price =
-      product.price.toLocaleString(
-        'id-ID',
+  try {
+    const catalog =
+      await this.productHandler.handle(
+        chatId,
+        page,
       );
 
-    const caption =
-      `📦 ${product.name}\n` +
-      `💰 Rp${price}\n` +
-      `📊 Stok: ${product.stock}`;
+    /*
+     * Initial catalog:
+     * tampilkan logo jika file ID sudah dikonfigurasi.
+     */
+    if (
+      !messageId &&
+      catalog.logoFileId
+    ) {
+      await this.telegramService.sendPhoto(
+        chatId,
+        catalog.logoFileId,
+        '🛍️ NozTech Commerce',
+      );
+    }
 
-    const keyboard = [
-      [
-        {
-          text: '🛒 Tambah ke Keranjang',
-          callback_data:
-            `cart:add:${product.id}`,
-        },
-      ],
-    ];
+    /*
+     * Pagination:
+     * edit pesan katalog yang sama.
+     */
+    if (messageId) {
+      await this.telegramService.editMessageText(
+        chatId,
+        messageId,
+        catalog.text,
+        undefined,
+        catalog.inlineKeyboard,
+      );
 
+      return;
+    }
+
+    await this.telegramService.sendMessage(
+      chatId,
+      catalog.text,
+      catalog.inlineKeyboard,
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Gagal membuka katalog.';
+
+    this.logger.error(
+      `Catalog error: ${message}`,
+    );
+
+    await this.telegramService.sendMessage(
+      chatId,
+      `⚠️ ${message}`,
+    );
+  }
+}
+
+private async handleProductDetail(
+  chatId: number,
+  productId: string,
+  page: number,
+): Promise<void> {
+  try {
+    const product =
+      await this.productHandler.getDetail(
+        productId,
+      );
+
+    if (!product) {
+      await this.telegramService.sendMessage(
+        chatId,
+        '❌ Produk tidak ditemukan.',
+        [
+          [
+            {
+              text: '⬅️ Kembali ke Katalog',
+              callback_data:
+                `catalog:back:${page}`,
+            },
+          ],
+        ],
+      );
+
+      return;
+    }
+
+    const stockText =
+      product.stock > 0
+        ? `🟢 ${product.stock} tersedia`
+        : '🔴 Habis';
+
+   const selectedQuantity = 1;
+const selectedTotal =
+  product.price * selectedQuantity;
+
+const caption =
+  '╭────────────────────────────╮\n' +
+  '│ 📦 DETAIL PRODUK\n' +
+  '├────────────────────────────╯\n' +
+  '│\n' +
+  `│ 🎯 ${product.name}\n` +
+  '│\n' +
+  '│ 💰 Harga\n' +
+  `│    Rp${product.price.toLocaleString('id-ID')}\n` +
+  '│\n' +
+  '│ 📦 Stok\n' +
+  `│    ${stockText}\n` +
+  '│\n' +
+  (
+    product.description
+      ? '│ 📝 Deskripsi\n' +
+        `│    ${product.description}\n` +
+        '│\n'
+      : ''
+  ) +
+  '├────────────────────────────\n' +
+  '│ 🔢 JUMLAH\n' +
+  '│\n' +
+  '│       [ − ]   1   [ + ]\n' +
+  '│\n' +
+  '│ 💵 TOTAL\n' +
+  `│    Rp${selectedTotal.toLocaleString('id-ID')}\n` +
+  '╰────────────────────────────╮\n' +
+  'Silakan pilih tindakan di bawah.';
+   const keyboard = [];
+
+if (product.stock > 0) {
+  keyboard.push([
+   {
+  text: '−',
+  callback_data:
+    `catalog:qty:decrease:${product.id}:1:${page}`,
+},
+{
+  text: '1',
+  callback_data: 'catalog:noop',
+},
+{
+  text: '+',
+  callback_data:
+    `catalog:qty:increase:${product.id}:1:${page}`,
+},
+  ]);
+
+  keyboard.push([
+    {
+  text: '🛒 Tambah ke Keranjang',
+  callback_data:
+    `cart:add:${product.id}:${selectedQuantity}`,
+},
+  ]);
+} else {
+  keyboard.push([
+    {
+      text: '🔴 Produk Habis',
+      callback_data: 'catalog:noop',
+    },
+  ]);
+}
+
+keyboard.push([
+  {
+    text: '⬅️ Kembali ke Katalog',
+    callback_data:
+      `catalog:back:${page}`,
+  },
+]);
     if (product.photoFileId) {
       await this.telegramService.sendPhoto(
         chatId,
@@ -1605,184 +1904,384 @@ case 'admin:supplier-orders': {
         keyboard,
       );
     }
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Gagal membuka detail produk.';
+
+    this.logger.error(
+      `Product detail error: ${message}`,
+    );
+
+    await this.telegramService.sendMessage(
+      chatId,
+      `⚠️ ${message}`,
+    );
+  }
+
+}
+
+private async handleAddToCart(
+  chatId: number,
+  telegramUser: {
+    id: number;
+    first_name?: string;
+    username?: string;
+  },
+  callbackData: string,
+): Promise<void> {
+  const parts = callbackData.split(':');
+
+const productId = parts[2];
+
+const selectedQuantity = Number(
+  parts[3] ?? '1',
+);
+
+  if (
+  !productId ||
+  !Number.isInteger(selectedQuantity) ||
+  selectedQuantity < 1
+) {
+  await this.telegramService.sendMessage(
+    chatId,
+    '⚠️ Data produk atau quantity tidak valid.',
+  );
+
+  return;
+}
+
+  try {
+    const customer =
+      await this.customerService.findOrCreateByTelegram(
+        String(telegramUser.id),
+        telegramUser.first_name,
+        telegramUser.username,
+      );
+
+   await this.cartService.addItem(
+  customer.id,
+  productId,
+);
+
+for (let i = 1; i < selectedQuantity; i++) {
+  await this.cartService.increaseItem(
+    customer.id,
+    productId,
+  );
+}
+
+    await this.telegramService.sendMessage(
+      chatId,
+      '✅ Produk berhasil ditambahkan ke keranjang.\n\n' +
+        'Silakan lanjutkan belanja atau buka keranjang kamu.',
+      [
+        [
+          {
+            text: '🛒 Lihat Keranjang',
+            callback_data: 'cart:open',
+          },
+        ],
+        [
+          {
+            text: '🛍️ Kembali ke Katalog',
+            callback_data: 'catalog:open',
+          },
+        ],
+      ],
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Gagal menambahkan produk ke keranjang.';
+
+    this.logger.error(
+      `Add cart item error: ${message}`,
+    );
+
+    await this.telegramService.sendMessage(
+      chatId,
+      `⚠️ ${message}`,
+    );
   }
 }
 
-  private async handleAddToCart(
-    chatId: number,
-    telegramUser: {
-      id: number;
-      first_name?: string;
-      username?: string;
-    },
-    callbackData: string,
-  ): Promise<void> {
-    const productId = callbackData.substring(
-      'cart:add:'.length,
+private async handleIncreaseItem(
+  chatId: number,
+  telegramUser: {
+    id: number;
+    first_name?: string;
+    username?: string;
+  },
+  callbackData: string,
+): Promise<void> {
+  const productId = callbackData.substring(
+    'cart:increase:'.length,
+  );
+
+  if (!productId) {
+    await this.telegramService.sendMessage(
+      chatId,
+      '⚠️ Produk tidak valid.',
     );
-
-    if (!productId) {
-      await this.telegramService.sendMessage(
-        chatId,
-        '⚠️ Produk tidak valid.',
-      );
-
-      return;
-    }
-
-    try {
-      const customer =
-        await this.customerService.findOrCreateByTelegram(
-          String(telegramUser.id),
-          telegramUser.first_name,
-          telegramUser.username,
-        );
-
-      const item =
-        await this.cartService.addItem(
-          customer.id,
-          productId,
-        );
-
-      const price = Number(
-        item.product.price,
-      ).toLocaleString('id-ID');
-
-      await this.telegramService.sendMessage(
-        chatId,
-        `✅ ${item.product.name}\n\n` +
-          `Ditambahkan ke keranjang.\n` +
-          `Jumlah: ${item.quantity}\n` +
-          `Harga: Rp${price}`,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Gagal menambahkan produk ke keranjang.';
-
-      this.logger.error(
-        `Add to cart error: ${message}`,
-      );
-
-      await this.telegramService.sendMessage(
-        chatId,
-        `⚠️ ${message}`,
-      );
-    }
+    return;
   }
 
-  private async handleIncreaseItem(
-    chatId: number,
-    telegramUser: {
-      id: number;
-      first_name?: string;
-      username?: string;
-    },
-    callbackData: string,
-  ): Promise<void> {
-    const productId = callbackData.substring(
-      'cart:increase:'.length,
-    );
-
-    if (!productId) {
-      await this.telegramService.sendMessage(
-        chatId,
-        '⚠️ Produk tidak valid.',
+  try {
+    const customer =
+      await this.customerService.findOrCreateByTelegram(
+        String(telegramUser.id),
+        telegramUser.first_name,
+        telegramUser.username,
       );
 
-      return;
-    }
+    await this.cartService.increaseItem(
+      customer.id,
+      productId,
+    );
 
-    try {
-      const customer =
-        await this.customerService.findOrCreateByTelegram(
-          String(telegramUser.id),
-          telegramUser.first_name,
-          telegramUser.username,
-        );
+    await this.handleCart(
+      chatId,
+      telegramUser,
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Gagal menambah jumlah produk.';
 
-      await this.cartService.increaseItem(
-        customer.id,
+    this.logger.error(
+      `Increase cart item error: ${message}`,
+    );
+
+    await this.telegramService.sendMessage(
+      chatId,
+      `⚠️ ${message}`,
+    );
+  }
+}
+
+private async handleDecreaseItem(
+  chatId: number,
+  telegramUser: {
+    id: number;
+    first_name?: string;
+    username?: string;
+  },
+  callbackData: string,
+): Promise<void> {
+  const productId = callbackData.substring(
+    'cart:decrease:'.length,
+  );
+
+  if (!productId) {
+    await this.telegramService.sendMessage(
+      chatId,
+      '⚠️ Produk tidak valid.',
+    );
+    return;
+  }
+
+  try {
+    const customer =
+      await this.customerService.findOrCreateByTelegram(
+        String(telegramUser.id),
+        telegramUser.first_name,
+        telegramUser.username,
+      );
+
+    await this.cartService.decreaseItem(
+      customer.id,
+      productId,
+    );
+
+    await this.handleCart(
+      chatId,
+      telegramUser,
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Gagal mengurangi jumlah produk.';
+
+    this.logger.error(
+      `Decrease cart item error: ${message}`,
+    );
+
+    await this.telegramService.sendMessage(
+      chatId,
+      `⚠️ ${message}`,
+    );
+  }
+}
+
+private async handleProductQuantity(
+  chatId: number,
+  productId: string,
+  currentQuantity: number,
+  action: string,
+  page: number,
+  messageId?: number,
+): Promise<void> {
+  try {
+    const product =
+      await this.productHandler.getDetail(
         productId,
       );
 
-      await this.handleCart(
-        chatId,
-        telegramUser,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Gagal menambah jumlah produk.';
-
-      this.logger.error(
-        `Increase cart item error: ${message}`,
-      );
-
+    if (!product) {
       await this.telegramService.sendMessage(
         chatId,
-        `⚠️ ${message}`,
-      );
-    }
-  }
-
-  private async handleDecreaseItem(
-    chatId: number,
-    telegramUser: {
-      id: number;
-      first_name?: string;
-      username?: string;
-    },
-    callbackData: string,
-  ): Promise<void> {
-    const productId = callbackData.substring(
-      'cart:decrease:'.length,
-    );
-
-    if (!productId) {
-      await this.telegramService.sendMessage(
-        chatId,
-        '⚠️ Produk tidak valid.',
+        '❌ Produk tidak ditemukan.',
+        [
+          [
+            {
+              text: '⬅️ Kembali ke Katalog',
+              callback_data:
+                `catalog:back:${page}`,
+            },
+          ],
+        ],
       );
 
       return;
     }
 
-    try {
-      const customer =
-        await this.customerService.findOrCreateByTelegram(
-          String(telegramUser.id),
-          telegramUser.first_name,
-          telegramUser.username,
+    let quantity = currentQuantity;
+
+if (action === 'increase') {
+  quantity = Math.min(
+    currentQuantity + 1,
+    product.stock,
+  );
+}
+
+if (action === 'decrease') {
+  quantity = Math.max(
+    currentQuantity - 1,
+    1,
+  );
+}
+
+if (quantity === currentQuantity) {
+  return;
+}
+
+const total =
+  product.price * quantity;
+
+    const stockText =
+      product.stock > 0
+        ? `🟢 ${product.stock} tersedia`
+        : '🔴 Habis';
+
+    const caption =
+      '╭────────────────────────────╮\n' +
+      '│ 📦 DETAIL PRODUK\n' +
+      '├────────────────────────────╯\n' +
+      '│\n' +
+      `│ 🎯 ${product.name}\n` +
+      '│\n' +
+      '│ 💰 Harga\n' +
+      `│    Rp${product.price.toLocaleString('id-ID')}\n` +
+      '│\n' +
+      '│ 📦 Stok\n' +
+      `│    ${stockText}\n` +
+      '│\n' +
+      (
+        product.description
+          ? '│ 📝 Deskripsi\n' +
+            `│    ${product.description}\n` +
+            '│\n'
+          : ''
+      ) +
+      '├────────────────────────────\n' +
+      '│ 🔢 JUMLAH\n' +
+      '│\n' +
+      `│       [ − ]   ${quantity}   [ + ]\n` +
+      '│\n' +
+      '│ 💵 TOTAL\n' +
+      `│    Rp${total.toLocaleString('id-ID')}\n` +
+      '╰────────────────────────────╮\n' +
+      'Silakan pilih tindakan di bawah.';
+
+    const keyboard = [
+      [
+        {
+          text: '−',
+          callback_data:
+            `catalog:qty:decrease:${product.id}:${quantity}:${page}`,
+        },
+        {
+          text: `${quantity}`,
+          callback_data: 'catalog:noop',
+        },
+        {
+          text: '+',
+          callback_data:
+            `catalog:qty:increase:${product.id}:${quantity}:${page}`,
+        },
+      ],
+      [
+        {
+  text: '🛒 Tambah ke Keranjang',
+ callback_data:
+  `cart:add:${product.id}:${quantity}`,
+},
+      ],
+      [
+        {
+          text: '⬅️ Kembali ke Katalog',
+          callback_data:
+            `catalog:back:${page}`,
+        },
+      ],
+    ];
+
+    if (messageId) {
+      if (product.photoFileId) {
+        await this.telegramService.editMessageCaption(
+          chatId,
+          messageId,
+          caption,
+          undefined,
+          keyboard,
         );
-
-      await this.cartService.decreaseItem(
-        customer.id,
-        productId,
-      );
-
-      await this.handleCart(
-        chatId,
-        telegramUser,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Gagal mengurangi jumlah produk.';
-
-      this.logger.error(
-        `Decrease cart item error: ${message}`,
-      );
-
+      } else {
+        await this.telegramService.editMessageText(
+          chatId,
+          messageId,
+          caption,
+          undefined,
+          keyboard,
+        );
+      }
+    } else {
       await this.telegramService.sendMessage(
         chatId,
-        `⚠️ ${message}`,
+        caption,
+        keyboard,
       );
     }
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Gagal memperbarui jumlah produk.';
+
+    this.logger.error(
+      `Product quantity error: ${message}`,
+    );
+
+    await this.telegramService.sendMessage(
+      chatId,
+      `⚠️ ${message}`,
+    );
   }
+}
 
   private async handleRemoveItem(
     chatId: number,

@@ -10,10 +10,9 @@ export type MidtransPaymentMethod =
 @Injectable()
 export class MidtransPaymentService {
   private readonly baseUrl =
-    process.env.NODE_ENV === 'production'
-    ? 'https://app.midtrans.com'
-    : 'https://app.sandbox.midtrans.com';
-
+  process.env.MIDTRANS_ENV === 'production'
+  ? 'https://app.midtrans.com'
+  : 'https://app.sandbox.midtrans.com';
    private mapPaymentMethod(
     method: MidtransPaymentMethod,
   ): string[] {

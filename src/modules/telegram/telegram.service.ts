@@ -151,29 +151,81 @@ export class TelegramService {
     return response.data;
   }
 
-     async editMessageText(
-    chatId: number,
-    messageId: number,
-    text: string,
-    parseMode?: 'HTML' | 'MarkdownV2',
-  ) {
-    const response =
-      await this.httpService.axiosRef.post(
-        this.getApiUrl('editMessageText'),
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          text,
-          ...(parseMode
-            ? {
-                parse_mode: parseMode,
-              }
-            : {}),
-        },
-      );
+    async editMessageText(
+  chatId: number,
+  messageId: number,
+  text: string,
+  parseMode?: 'HTML' | 'MarkdownV2',
+  inlineKeyboard?: TelegramInlineKeyboardButton[][],
+) {
+  const response =
+    await this.httpService.axiosRef.post(
+      this.getApiUrl(
+        'editMessageText',
+      ),
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
 
-    return response.data;
-  }
+        ...(parseMode
+          ? {
+              parse_mode:
+                parseMode,
+            }
+          : {}),
+
+        ...(inlineKeyboard
+          ? {
+              reply_markup: {
+                inline_keyboard:
+                  inlineKeyboard,
+              },
+            }
+          : {}),
+      },
+    );
+
+  return response.data;
+}
+
+async editMessageCaption(
+  chatId: number,
+  messageId: number,
+  caption: string,
+  parseMode?: 'HTML' | 'MarkdownV2',
+  inlineKeyboard?: TelegramInlineKeyboardButton[][],
+) {
+  const response =
+    await this.httpService.axiosRef.post(
+      this.getApiUrl(
+        'editMessageCaption',
+      ),
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        caption,
+
+        ...(parseMode
+          ? {
+              parse_mode:
+                parseMode,
+            }
+          : {}),
+
+        ...(inlineKeyboard
+          ? {
+              reply_markup: {
+                inline_keyboard:
+                  inlineKeyboard,
+              },
+            }
+          : {}),
+      },
+    );
+
+  return response.data;
+}
 
  async sendPhoto(
   chatId: number,
